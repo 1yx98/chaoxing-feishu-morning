@@ -1,0 +1,20 @@
+{
+    "_说明": "这是配置示例文件。请勿将真实值填入此文件并提交到 GitHub！",
+    "_说明2": "所有敏感信息请通过 GitHub Secrets 设置，不要直接写在代码中。",
+    "飞书配置": {
+        "FEISHU_APP_ID": "在此填入你的飞书 App ID（不要提交到 GitHub）",
+        "FEISHU_APP_SECRET": "在此填入你的飞书 App Secret（不要提交到 GitHub）",
+        "FEISHU_RECEIVE_ID": "在此填入接收消息的 Chat ID 或 User ID",
+        "FEISHU_RECEIVE_ID_TYPE": "chat_id"
+    },
+    "超星配置": {
+        "CHAOXING_USERNAME": "在此填入你的超星账号（手机号/学号）",
+        "CHAOXING_PASSWORD": "在此填入你的超星密码",
+        "TERM_START_DATE": "2026-08-25"
+    },
+    "天气配置": {
+        "_说明": "天气数据源：Open-Meteo（免费，无需 Key）+ wttr.in（免费，无需 Key）+ 和风天气（可选）",
+        "WEATHER_CITY_ID": "101110106",
+        "QWEATHER_API_KEY": "在此填入和风天气 API Key（可选，不填则使用免费数据源）"
+    }
+}
