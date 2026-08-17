@@ -1,15 +1,9 @@
 """
 飞书卡片消息模块
-使用 App ID + App Secret → tenant_access_token → 卡片消息 API
 """
-
 import json, uuid, requests
 from utils import log_step, log_info, log_warning
-from config import (
-    FEISHU_APP_ID, FEISHU_APP_SECRET, FEISHU_RECEIVE_ID,
-    FEISHU_RECEIVE_ID_TYPE, FEISHU_API_BASE, REQUEST_TIMEOUT,
-)
-
+from config import FEISHU_APP_ID, FEISHU_APP_SECRET, FEISHU_RECEIVE_ID, FEISHU_RECEIVE_ID_TYPE, FEISHU_API_BASE, REQUEST_TIMEOUT
 
 class FeishuSender:
     def __init__(self, app_id=None, app_secret=None):
@@ -21,8 +15,7 @@ class FeishuSender:
         if not self.app_id or not self.app_secret:
             raise RuntimeError("飞书 App ID / App Secret 未配置")
         url = f"{FEISHU_API_BASE}/auth/v3/tenant_access_token/internal"
-        resp = requests.post(url, json={"app_id": self.app_id, "app_secret": self.app_secret},
-                            headers={"Content-Type": "application/json; charset=utf-8"}, timeout=REQUEST_TIMEOUT)
+        resp = requests.post(url, json={"app_id": self.app_id, "app_secret": self.app_secret}, headers={"Content-Type": "application/json; charset=utf-8"}, timeout=REQUEST_TIMEOUT)
         data = resp.json()
         if data.get("code") != 0:
             raise RuntimeError(f"获取飞书 token 失败: {data.get('msg')}")
@@ -37,7 +30,6 @@ class FeishuSender:
         rtype = receive_id_type or FEISHU_RECEIVE_ID_TYPE
         if not rid:
             raise RuntimeError("飞书接收者 ID 未配置")
-
         url = f"{FEISHU_API_BASE}/im/v1/messages"
         headers = {"Authorization": f"Bearer {self._token}", "Content-Type": "application/json; charset=utf-8"}
         if msg_type == "interactive":
@@ -46,10 +38,8 @@ class FeishuSender:
             body = {"receive_id": rid, "msg_type": "text", "content": json.dumps({"text": content}, ensure_ascii=False)}
         else:
             raise ValueError(f"不支持的消息类型: {msg_type}")
-
         resp = requests.post(url, params={"receive_id_type": rtype}, headers=headers, json=body, timeout=REQUEST_TIMEOUT)
         data = resp.json()
-
         if data.get("code") != 0:
             code = data.get("code")
             msg = data.get("msg", "未知错误")
@@ -59,7 +49,6 @@ class FeishuSender:
                 self._get_token()
                 return self.send(msg_type, content, receive_id, receive_id_type)
             raise RuntimeError(f"飞书消息发送失败: {msg} (code={code})")
-
         log_step("飞书消息发送成功", True)
         return data
 
@@ -72,12 +61,9 @@ def build_card(card_data):
     reminders = card_data.get("reminders", [])
 
     elements = []
-
-    # 日期
     elements.append({"tag": "markdown", "content": f"📅 **{di.get('date', '')}** · {di.get('weekday', '')}"})
     elements.append({"tag": "hr"})
 
-    # 课程
     if errors.get("course_failed"):
         elements.append({"tag": "markdown", "content": "📚 **今日课程**\n\n⚠️ 课程数据获取失败，请检查超星账号状态。"})
     elif not courses:
@@ -101,7 +87,6 @@ def build_card(card_data):
 
     elements.append({"tag": "hr"})
 
-    # 天气
     if errors.get("weather_failed") or weather.get("all_failed"):
         elements.append({"tag": "markdown", "content": "🌤 **今日天气**\n\n⚠️ 天气数据暂时获取失败。"})
     else:
@@ -135,7 +120,6 @@ def build_card(card_data):
 
     elements.append({"tag": "hr"})
 
-    # 提醒
     if reminders:
         rl = ["💡 **今日提醒**\n"] + [f"• {r}" for r in reminders]
         elements.append({"tag": "markdown", "content": "\n".join(rl)})
@@ -144,7 +128,6 @@ def build_card(card_data):
 
     elements.append({"tag": "hr"})
 
-    # 错误提示
     if errors:
         parts = []
         if errors.get("course_failed"):
@@ -152,9 +135,9 @@ def build_card(card_data):
         if errors.get("weather_failed"):
             parts.append("天气获取失败")
         if parts:
-            elements.append({"tag": "note", "elements": [{"tag": "plain_text", "content": f"⚠️ 运行异常：{' · '.join(parts)}"}]})
+            elements.append({"tag": "markdown", "content": f"⚠️ 运行异常：{' · '.join(parts)}。请检查 GitHub Actions 日志。"})
 
-    elements.append({"tag": "note", "elements": [{"tag": "plain_text", "content": f"⏰ 推送时间：{di.get('date', '')} · 由 GitHub Actions 自动发送"}]})
+    elements.append({"tag": "markdown", "content": f"⏰ 推送时间：{di.get('date', '')} · 由 GitHub Actions 自动发送"})
 
     return {
         "schema": "2.0",
@@ -169,13 +152,23 @@ def send_error_card(error_info):
         s = FeishuSender()
         di = error_info.get("date_info", {})
         errs = error_info.get("errors", {})
-        items = ["✅ 课程获取正常" if not errs.get("course_failed") else "❌ 课程获取失败",
-                "✅ 天气获取正常" if not errs.get("weather_failed") else "❌ 天气获取失败"]
+        items = []
+        if errs.get("course_failed"):
+            items.append("❌ 课程获取失败")
+        else:
+            items.append("✅ 课程获取正常")
+        if errs.get("weather_failed"):
+            items.append("❌ 天气获取失败")
+        else:
+            items.append("✅ 天气获取正常")
         card = {
             "schema": "2.0", "config": {"wide_screen_mode": True},
             "header": {"title": {"tag": "plain_text", "content": "⚠️ 早安助手运行异常"}, "template": "red"},
             "body": {"direction": "vertical", "padding": "16px 12px",
-                     "elements": [{"tag": "markdown", "content": f"📅 {di.get('date', '')} · {di.get('weekday', '')}\n\n" + "\n".join(items) + "\n\n请前往 GitHub Actions 查看日志。"}]},
+                     "elements": [
+                         {"tag": "markdown", "content": f"📅 {di.get('date', '')} · {di.get('weekday', '')}\n\n" + "\n".join(items) + "\n\n请前往 GitHub Actions 查看详细日志。"},
+                         {"tag": "markdown", "content": "部分功能异常，请检查配置后手动重试。"},
+                     ]},
         }
         s.send("interactive", card)
         return True
