@@ -1,17 +1,20 @@
-name: 早安推送
+name: 课前提醒
 
 on:
   schedule:
-    - cron: '0 22 * * *'  # UTC 22:00 = 北京时间次日 6:00
+    # 每5分钟检查一次，周一至周五上课时段
+    # 北京时间 07:00-19:55 = UTC 23:00-11:55（周日-周四 UTC）
+    # 周五（北京）= UTC 周四23:00 ~ 周五11:55，所以 UTC 周日-周五
+    - cron: '*/5 23-23,0-11 * * 0-5'
   workflow_dispatch:
     inputs:
-      TEST_DATE:
-        description: '测试日期（留空=真实时间，格式: 2026-05-15）'
+      test_date:
+        description: '测试日期（格式：YYYY-MM-DD HH:MM，如 2026-05-15 08:05）'
         required: false
         default: ''
 
 jobs:
-  morning:
+  reminder:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,10 +23,8 @@ jobs:
           python-version: '3.12'
           cache: 'pip'
       - name: 安装依赖
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-      - name: 运行早安任务
+        run: pip install -r requirements.txt
+      - name: 检查课前提醒
         env:
           FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
           FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
@@ -31,7 +32,5 @@ jobs:
           CHAOXING_USERNAME: ${{ secrets.CHAOXING_USERNAME }}
           CHAOXING_PASSWORD: ${{ secrets.CHAOXING_PASSWORD }}
           TERM_START_DATE: ${{ secrets.TERM_START_DATE }}
-          WEATHER_CITY_ID: ${{ secrets.WEATHER_CITY_ID || '101110106' }}
-          QWEATHER_API_KEY: ${{ secrets.QWEATHER_API_KEY }}
-          TEST_DATE: ${{ github.event.inputs.TEST_DATE }}
-        run: python src/main.py
+          TEST_DATE: ${{ github.event.inputs.test_date }}
+        run: python src/class_reminder.py

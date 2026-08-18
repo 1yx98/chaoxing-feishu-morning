@@ -105,8 +105,15 @@ class FeishuSender:
         else:
             raise ValueError(f"不支持的消息类型: {msg_type}")
 
+        # 调试：打印请求信息
+        payload_str = json.dumps(body, ensure_ascii=False)
+        log_info(f"飞书请求 URL: {url}?receive_id_type={receive_id_type}")
+        log_info(f"飞书请求 receive_id: {receive_id}")
+        log_info(f"飞书请求体长度: {len(payload_str)} 字符")
+
         try:
-            resp = requests.post(url, params=params, headers=headers, json=body, timeout=REQUEST_TIMEOUT)
+            # 使用 data= 而非 json=，确保与飞书官方示例一致
+            resp = requests.post(url, params=params, headers=headers, data=payload_str.encode("utf-8"), timeout=REQUEST_TIMEOUT)
             data = resp.json()
         except Exception as e:
             raise RuntimeError(f"飞书消息发送网络请求失败: {e}")
@@ -114,6 +121,8 @@ class FeishuSender:
         if data.get("code") != 0:
             error_code = data.get("code")
             error_msg = data.get("msg", "未知错误")
+            # 打印完整响应以便调试
+            log_info(f"飞书 API 完整响应: {json.dumps(data, ensure_ascii=False)}")
 
             # 常见错误诊断
             if error_code == 230002:
@@ -125,10 +134,13 @@ class FeishuSender:
             elif error_code == 230027:
                 raise RuntimeError(f"飞书消息发送失败: 缺少必要权限。请在飞书开放平台申请 im:message 权限。")
             elif error_code == 99991663:
-                # Token 过期，重试一次
+                # Token 过期，重试一次（用 _token_retry 标记防止无限递归）
+                if getattr(self, "_token_retry", False):
+                    raise RuntimeError(f"飞书消息发送失败: Token 刷新后仍然过期")
                 log_warning("Token 可能过期，重新获取...")
                 self._token = None
                 self._get_token()
+                self._token_retry = True
                 return self.send_message(msg_type, content, receive_id, receive_id_type)
             else:
                 raise RuntimeError(f"飞书消息发送失败: {error_msg} (code={error_code})")
@@ -337,13 +349,11 @@ def build_card(card_data: dict) -> dict:
     card = {
         "schema": "2.0",
         "config": {
-            "wide_screen_mode": True,
+            "width_mode": "fill",
             "enable_forward": True,
         },
         "header": header,
         "body": {
-            "direction": "vertical",
-            "padding": "16px 12px",
             "elements": elements,
         },
     }
@@ -373,17 +383,19 @@ def send_error_card(error_info: dict) -> bool:
             error_items.append("❌ 天气获取失败")
         else:
             error_items.append("✅ 天气获取正常")
+        if errors.get("feishu_failed"):
+            error_items.append("❌ 飞书消息发送失败")
+        else:
+            error_items.append("✅ 飞书消息发送正常")
 
         card = {
             "schema": "2.0",
-            "config": {"wide_screen_mode": True},
+            "config": {"width_mode": "fill"},
             "header": {
                 "title": {"tag": "plain_text", "content": "⚠️ 早安助手运行异常"},
                 "template": "red",
             },
             "body": {
-                "direction": "vertical",
-                "padding": "16px 12px",
                 "elements": [
                     {
                         "tag": "markdown",
@@ -411,7 +423,7 @@ def send_error_card(error_info: dict) -> bool:
 
 def send_full_card(card_data: dict) -> bool:
     """
-    发送完整的早安卡片
+    发送完整的早安卡片，失败时自动降级为文本消息
 
     :param card_data: 卡片数据字典
     :return: 是否发送成功
@@ -424,4 +436,83 @@ def send_full_card(card_data: dict) -> bool:
         return True
     except Exception as e:
         log_step(f"早安卡片发送失败: {e}", False)
-        raise
+        # 降级为纯文本消息
+        try:
+            sender = FeishuSender()
+            date_info = card_data.get("date_info", {})
+            courses = card_data.get("courses", [])
+            weather = card_data.get("weather", {})
+            errors = card_data.get("errors", {})
+            
+            text_lines = [
+                f"🌅 早安！{date_info.get('date', '')} {date_info.get('weekday', '')}",
+                "",
+            ]
+            
+            if errors.get("course_failed"):
+                text_lines.append("📚 课程：获取失败")
+            elif courses:
+                text_lines.append(f"📚 今日共 {len(courses)} 节课")
+                for c in courses:
+                    text_lines.append(f"  · {c.get('name', '')} {c.get('sections', '')} {c.get('time', '')}")
+            else:
+                text_lines.append("📚 今日无课")
+            
+            text_lines.append("")
+            
+            if errors.get("weather_failed"):
+                text_lines.append("🌤 天气：获取失败")
+            elif weather.get("current_temp"):
+                text_lines.append(f"🌤 天气：{weather.get('current_temp')}°C {weather.get('weather_desc', '')}")
+            
+            text_lines.append("")
+            text_lines.append("（卡片发送失败，已降级为文本消息。请检查 GitHub Actions 日志。）")
+            
+            text_content = "\n".join(text_lines)
+            sender.send_message("text", text_content)
+            log_step("降级文本消息发送成功", True)
+            return True
+        except Exception as e2:
+            log_step(f"降级文本消息也发送失败: {e2}", False)
+            raise
+
+
+def send_class_notification(
+    course_name: str,
+    time_desc: str,
+    section_desc: str,
+    teacher: str = "",
+    location: str = "",
+    date_str: str = "",
+    weekday_str: str = "",
+) -> bool:
+    """
+    发送课前提醒（纯文本消息）
+
+    :param course_name: 课程名称
+    :param time_desc: 上课时间（如 "08:00 - 09:40"）
+    :param section_desc: 节次描述（如 "第1-2节"）
+    :param teacher: 教师姓名
+    :param location: 上课地点
+    :param date_str: 日期字符串
+    :param weekday_str: 星期字符串
+    :return: 是否发送成功
+    """
+    sender = FeishuSender()
+
+    text_lines = [
+        "📖 上课提醒",
+        "",
+    ]
+    if date_str:
+        text_lines.append(f"日期：{date_str} {weekday_str}")
+    text_lines.append(f"课程：{course_name}")
+    text_lines.append(f"时间：{time_desc}（{section_desc}）")
+    if location:
+        text_lines.append(f"地点：{location}")
+    if teacher:
+        text_lines.append(f"教师：{teacher}")
+
+    text_content = "\n".join(text_lines)
+    sender.send_message("text", text_content)
+    return True

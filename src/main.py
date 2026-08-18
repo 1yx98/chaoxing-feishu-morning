@@ -1,43 +1,55 @@
 """
 主入口模块
 每天早晨由 GitHub Actions 自动调用，或手动执行测试。
+设置 TEST_DATE 环境变量可模拟指定日期，格式: 2026-05-15 或 2026-05-15 08:05
 """
 
+import os
 import sys
 import traceback
+from datetime import datetime
 
-from utils import get_date_info, get_school_week, log_step, log_info, log_warning
-from chaoxing import login, get_day_courses
+from utils import get_date_info, get_school_week, log_step, log_info, log_warning, TZ_BEIJING
+from chaoxing import get_day_courses
 from weather import get_weather
 from feishu import send_full_card, send_error_card
 
 
+def get_test_date():
+    """获取测试日期"""
+    test_date = os.getenv("TEST_DATE", "").strip()
+    if test_date:
+        try:
+            if " " in test_date:
+                return datetime.strptime(test_date, "%Y-%m-%d %H:%M").replace(tzinfo=TZ_BEIJING)
+            else:
+                return datetime.strptime(test_date, "%Y-%m-%d").replace(tzinfo=TZ_BEIJING)
+        except Exception:
+            pass
+    return None
+
+
 def generate_reminders(courses: list, weather: dict) -> list:
-    """
-    根据课程和天气自动生成今日提醒
-    """
+    """根据课程和天气自动生成今日提醒"""
     reminders = []
 
     try:
-        # 天气提醒
         current_temp = weather.get("current_temp")
         if current_temp is not None:
             try:
                 temp = float(current_temp)
                 if temp >= 35:
-                    reminders.append("☀️ 今天温度很高，注意防晒和补水，尽量避免长时间户外活动。")
+                    reminders.append("☀️ 今天温度很高，注意防晒和补水。")
                 elif temp >= 30:
                     reminders.append("☀️ 今天温度较高，注意防晒和补水。")
                 elif temp <= 5:
-                    reminders.append("❄️ 今天温度较低，记得穿暖和点，注意保暖。")
+                    reminders.append("❄️ 今天温度较低，注意保暖。")
                 elif temp <= 10:
                     reminders.append("🧥 今天有点冷，出门记得加件外套。")
             except (ValueError, TypeError):
                 pass
 
-        # 降雨提醒（合并概率和描述，避免重复）
         has_rain_reminder = False
-
         rain_prob = weather.get("rain_probability", "")
         if rain_prob:
             try:
@@ -58,13 +70,12 @@ def generate_reminders(courses: list, weather: dict) -> list:
         if any(w in weather_desc for w in ["霾", "雾"]):
             reminders.append("😷 今天空气质量不佳，建议佩戴口罩。")
 
-        # 课程提醒
         if courses:
             first_course = courses[0]
             if first_course.get("time"):
                 reminders.append(f"📖 今天第一节课 {first_course.get('time', '')} 开始，不要迟到哦。")
         else:
-            reminders.append("🎉 今天没有课，可以复习功课或好好休息一下。")
+            reminders.append("🎉 今天没有课，可以好好休息一下。")
 
     except Exception as e:
         log_warning(f"生成提醒时出错: {e}")
@@ -73,45 +84,39 @@ def generate_reminders(courses: list, weather: dict) -> list:
 
 
 def main():
-    """
-    主流程：
-    1. 获取日期信息
-    2. 登录超星并获取课程
-    3. 获取天气
-    4. 生成提醒
-    5. 构建飞书卡片并发送
-    """
     print("=" * 50)
     print("🚀 早安助手开始执行")
     print("=" * 50)
 
-    # ===== 第 1 步：获取日期信息 =====
+    test_dt = get_test_date()
+    if test_dt:
+        log_info(f"⚠ 测试模式：模拟日期 {test_dt.strftime('%Y-%m-%d')}")
+
+    # 日期信息
     log_step("获取日期", True)
-    date_info = get_date_info()
-    week_num = get_school_week()
+    test_date_str = test_dt.strftime("%Y-%m-%d") if test_dt else None
+    date_info = get_date_info(test_date_str)
+    week_num = get_school_week(ref_date=test_dt)
     date_info["week_number"] = week_num
     log_info(f"今天: {date_info['date']} {date_info['weekday']} 第{week_num}周")
 
-    # 用于收集错误
     errors = {}
 
-    # ===== 第 2 步：获取课程 =====
+    # 获取课程
     log_step("获取课程", True)
     courses = []
     try:
-        session = login()
-        courses = get_day_courses(session, week_num)
+        courses = get_day_courses(ref_date=test_dt)
         if not courses:
             log_info("今日无课程安排")
         else:
             for i, c in enumerate(courses, 1):
-                log_info(f"  课程{i}: {c.get('name')} {c.get('sections', '')} {c.get('time', '')}")
+                log_info(f"  课程{i}: {c.get('name')} | {c.get('time', '')} | {c.get('location', '')} | {c.get('teacher', '')}")
     except Exception as e:
         log_step(f"课程获取失败: {e}", False)
         errors["course_failed"] = True
-        log_info("课程部分将显示为获取失败，不影响天气信息的发送")
 
-    # ===== 第 3 步：获取天气 =====
+    # 获取天气
     log_step("获取天气", True)
     weather = {}
     try:
@@ -123,13 +128,13 @@ def main():
         errors["weather_failed"] = True
         weather = {"all_failed": True}
 
-    # ===== 第 4 步：生成提醒 =====
+    # 生成提醒
     log_step("生成今日提醒", True)
     reminders = generate_reminders(courses, weather)
     for r in reminders:
         log_info(f"  提醒: {r}")
 
-    # ===== 第 5 步：构建并发送飞书卡片 =====
+    # 发送飞书卡片
     log_step("生成飞书卡片", True)
     card_data = {
         "date_info": date_info,
@@ -144,17 +149,12 @@ def main():
         send_full_card(card_data)
     except Exception as e:
         log_step(f"飞书消息发送失败: {e}", False)
-        # 尝试发送简单的错误通知
+        errors["feishu_failed"] = True
         try:
-            send_error_card({
-                "date_info": date_info,
-                "errors": {"course_failed": True, "weather_failed": True},
-            })
-        except:
-            pass
-        raise
+            send_error_card({"date_info": date_info, "errors": errors})
+        except Exception as e2:
+            log_step(f"异常通知卡片也发送失败: {e2}", False)
 
-    # ===== 完成 =====
     print("=" * 50)
     if errors:
         log_step("任务完成（部分功能异常，请检查日志）", False)
@@ -168,9 +168,7 @@ def main():
 if __name__ == "__main__":
     try:
         errors = main()
-        # 部分功能失败（课程/天气）不影响整体——卡片已发送
-        # 只有程序崩溃才返回非零退出码
-        sys.exit(0)
+        sys.exit(1 if errors else 0)
     except Exception as e:
         print(f"\n❌ 程序异常退出: {e}")
         traceback.print_exc()

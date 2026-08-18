@@ -121,7 +121,8 @@ def fetch_qweather():
          "weather_desc": None, "wind_direction": None, "wind_speed": None,
          "humidity": None, "rain_probability": None, "air_quality": None, "source": "和风天气"}
     try:
-        now = _get(f"https://devapi.qweather.com/v7/weather/now?location={WEATHER_CITY_ID}&key={QWEATHER_API_KEY}").json()
+        now = _get(f"https://devapi.qweather.com/v7/weather/now?location={WEATHER_CITY_ID}&key={QWEATHER_API_KEY}")
+        now = now.json() if now else {}
         if now.get("code") == "200":
             n = now.get("now", {})
             r["current_temp"] = n.get("temp")
@@ -133,7 +134,8 @@ def fetch_qweather():
         log_warning(f"和风实时失败: {e}")
         return None
     try:
-        fc = _get(f"https://devapi.qweather.com/v7/weather/3d?location={WEATHER_CITY_ID}&key={QWEATHER_API_KEY}").json()
+        fc = _get(f"https://devapi.qweather.com/v7/weather/3d?location={WEATHER_CITY_ID}&key={QWEATHER_API_KEY}")
+        fc = fc.json() if fc else {}
         if fc.get("code") == "200":
             d = fc.get("daily", [])
             if d:

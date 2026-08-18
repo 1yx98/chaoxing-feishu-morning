@@ -10,7 +10,7 @@
     "超星配置": {
         "CHAOXING_USERNAME": "在此填入你的超星账号（手机号/学号）",
         "CHAOXING_PASSWORD": "在此填入你的超星密码",
-        "TERM_START_DATE": "2026-08-25"
+        "TERM_START_DATE": "2026-08-31"
     },
     "天气配置": {
         "_说明": "天气数据源：Open-Meteo（免费，无需 Key）+ wttr.in（免费，无需 Key）+ 和风天气（可选）",

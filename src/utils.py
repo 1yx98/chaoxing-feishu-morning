@@ -3,6 +3,7 @@
 """
 
 import sys
+import os
 from datetime import datetime, timezone, timedelta
 
 
@@ -11,13 +12,23 @@ TZ_BEIJING = timezone(timedelta(hours=8))
 
 
 def get_beijing_now() -> datetime:
-    """获取当前北京时间"""
-    return datetime.now(TZ_BEIJING)
+    """获取当前北京时间（不依赖系统时区设置）"""
+    return datetime.now(timezone.utc) + timedelta(hours=8)
 
 
-def get_date_info() -> dict:
+def get_date_info(test_date: str = None) -> dict:
     """获取当前的日期、星期等信息"""
-    now = get_beijing_now()
+    if test_date:
+        try:
+            if " " in test_date:
+                now = datetime.strptime(test_date, "%Y-%m-%d %H:%M").replace(tzinfo=TZ_BEIJING)
+            else:
+                now = datetime.strptime(test_date, "%Y-%m-%d").replace(tzinfo=TZ_BEIJING)
+        except Exception:
+            now = get_beijing_now()
+    else:
+        now = get_beijing_now()
+
     weekdays_cn = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
     return {
         "date": now.strftime("%Y年%m月%d日"),
@@ -27,14 +38,13 @@ def get_date_info() -> dict:
     }
 
 
-def get_school_week(term_start_date_str: str = None) -> int:
+def get_school_week(term_start_date_str: str = None, ref_date: datetime = None) -> int:
     """计算当前是第几教学周"""
     if not term_start_date_str:
-        import os
-        term_start_date_str = os.getenv("TERM_START_DATE", "2026-08-25").strip()
+        term_start_date_str = os.getenv("TERM_START_DATE", "2026-08-31").strip()
     try:
         start = datetime.strptime(term_start_date_str, "%Y-%m-%d").replace(tzinfo=TZ_BEIJING)
-        now = get_beijing_now()
+        now = ref_date or get_beijing_now()
         delta = now - start
         if delta.days < 0:
             return 1
@@ -52,7 +62,7 @@ def log_step(message: str, success: bool = True):
 
 def log_info(message: str):
     """打印信息日志"""
-    print(f"[ℹ] {message}", flush=True)
+    print(f"[i] {message}", flush=True)
     sys.stdout.flush()
 
 
