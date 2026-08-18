@@ -220,7 +220,7 @@ def build_card(card_data: dict) -> dict:
             teacher = course.get("teacher", "")
             location = course.get("location", "")
 
-            section_label = f"第{sections}节" if sections else f"第{i}节"
+            section_label = sections if sections else f"第{i}节"
             if time:
                 section_label += f"（{time}）"
 
@@ -256,15 +256,15 @@ def build_card(card_data: dict) -> dict:
         max_t = weather.get("max_temp", "")
         min_t = weather.get("min_temp", "")
 
-        if current or max_t or min_t:
+        if current is not None or max_t is not None or min_t is not None:
             temp_parts = []
-            if current:
+            if current is not None:
                 temp_parts.append(f"当前 {current}°C")
-            if max_t and min_t:
+            if max_t is not None and min_t is not None:
                 temp_parts.append(f"{min_t}°C ~ {max_t}°C")
-            elif max_t:
+            elif max_t is not None:
                 temp_parts.append(f"最高 {max_t}°C")
-            elif min_t:
+            elif min_t is not None:
                 temp_parts.append(f"最低 {min_t}°C")
             weather_lines.append(f"🌡 {' · '.join(temp_parts)}")
 
@@ -462,7 +462,7 @@ def send_full_card(card_data: dict) -> bool:
             
             if errors.get("weather_failed"):
                 text_lines.append("🌤 天气：获取失败")
-            elif weather.get("current_temp"):
+            elif weather.get("current_temp") is not None:
                 text_lines.append(f"🌤 天气：{weather.get('current_temp')}°C {weather.get('weather_desc', '')}")
             
             text_lines.append("")

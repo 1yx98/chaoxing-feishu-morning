@@ -5,6 +5,7 @@
 """
 
 import os
+import re
 import sys
 import traceback
 from datetime import datetime
@@ -53,7 +54,6 @@ def generate_reminders(courses: list, weather: dict) -> list:
         rain_prob = weather.get("rain_probability", "")
         if rain_prob:
             try:
-                import re
                 num = re.findall(r'\d+', str(rain_prob))
                 if num and int(num[0]) >= 50:
                     reminders.append("🌧 今天有降雨概率，出门记得带伞。")
