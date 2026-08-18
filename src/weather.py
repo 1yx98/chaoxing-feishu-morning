@@ -224,17 +224,39 @@ def fetch_qweather():
 
 
 def _merge(*results):
+    """合并多数据源。墨迹天气优先，其他源只补漏（如 rain_probability）。"""
     m = EMPTY.copy()
     m["sources_available"] = []
     m["sources_failed"] = []
+    moji_data = None
+    others = []
     for w in results:
         if w is None:
             continue
+        if w.get("source") == "墨迹天气":
+            moji_data = w
+        else:
+            others.append(w)
         m["sources_available"].append(w.get("source", "unknown"))
-        for f in ["current_temp", "max_temp", "min_temp", "weather_desc", "wind_direction", "wind_speed", "humidity", "rain_probability", "air_quality"]:
+
+    # 墨迹天气优先
+    if moji_data:
+        for f in ["current_temp", "max_temp", "min_temp", "weather_desc",
+                   "wind_direction", "wind_speed", "humidity"]:
+            if moji_data.get(f) is not None:
+                m[f] = moji_data[f]
+        m["source"] = "墨迹天气"
+
+    # 其他源补漏
+    for w in others:
+        for f in ["current_temp", "max_temp", "min_temp", "weather_desc",
+                   "wind_direction", "wind_speed", "humidity", "rain_probability",
+                   "air_quality"]:
             if m[f] is None and w.get(f) is not None:
                 m[f] = w[f]
-    m["source"] = " + ".join(m["sources_available"]) if m["sources_available"] else None
+
+    if not m["source"]:
+        m["source"] = " + ".join(m["sources_available"]) if m["sources_available"] else None
     return m
 
 
