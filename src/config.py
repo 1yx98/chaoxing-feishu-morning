@@ -39,6 +39,12 @@ CHAOXING_AES_KEY = "u2oh6Vu^HWe4_AES"
 WEATHER_CITY_ID = os.getenv("WEATHER_CITY_ID", "101110106").strip()
 WEATHER_CITY_NAME = os.getenv("WEATHER_CITY_NAME", "西安石油大学鄠邑校区").strip()
 
+# 墨迹天气网页地址（用于解析实况天气）
+MOJI_WEATHER_URL = os.getenv(
+    "MOJI_WEATHER_URL",
+    "https://tianqi.moji.com/weather/china/shaanxi/huyi-district"
+).strip()
+
 # 和风天气 API Key（可选）
 QWEATHER_API_KEY = os.getenv("QWEATHER_API_KEY", "").strip()
 

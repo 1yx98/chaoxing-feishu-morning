@@ -2,17 +2,19 @@
 天气模块 - 多数据源容错
 1. Open-Meteo（免费，无需 Key）
 2. wttr.in（免费，无需 Key）
-3. 和风天气（可选，需 Key）
+3. 墨迹天气（免费，网页解析）
+4. 和风天气（可选，需 Key）
 """
 
 import json
+import re
 import requests
 from typing import Optional, Dict, Any
 
 from utils import log_step, log_info, log_warning
 from config import (
     WEATHER_CITY_ID, WEATHER_CITY_NAME, QWEATHER_API_KEY,
-    REQUEST_TIMEOUT, USER_AGENT,
+    MOJI_WEATHER_URL, REQUEST_TIMEOUT, USER_AGENT,
 )
 
 HUYI_LAT = 34.16
@@ -113,6 +115,80 @@ def fetch_wttr():
         return None
 
 
+def fetch_moji():
+    """
+    从墨迹天气网页 meta description 中解析实况天气。
+    免费、无需 Key，但仅提供当日实况 + 白天/夜间预报。
+    格式示例：
+      鄠邑区今天实况：21度 阵雨，湿度：98%，西南风：3级。
+      白天：28度,小雨。 夜间：小雨，21度，...
+    """
+    log_info("正在从墨迹天气获取...")
+    try:
+        h = {
+            "User-Agent": USER_AGENT,
+            "Accept": "text/html,application/xhtml+xml,*/*",
+            "Accept-Language": "zh-CN,zh;q=0.9",
+        }
+        resp = requests.get(MOJI_WEATHER_URL, headers=h, timeout=REQUEST_TIMEOUT, allow_redirects=True)
+        html = resp.text
+
+        # 提取 meta description
+        match = re.search(r'<meta\s+name="description"\s+content="([^"]+)"', html)
+        if not match:
+            log_warning("墨迹天气: 未找到 meta description")
+            return None
+
+        desc = match.group(1)
+        log_info(f"墨迹天气 meta: {desc[:80]}...")
+
+        result = {
+            "city": WEATHER_CITY_NAME,
+            "current_temp": None, "max_temp": None, "min_temp": None,
+            "weather_desc": None, "wind_direction": None, "wind_speed": None,
+            "humidity": None, "rain_probability": None, "air_quality": None,
+            "source": "墨迹天气",
+        }
+
+        # 实况: "21度 阵雨，湿度：98%，西南风：3级"
+        cond_match = re.search(r'实况[：:]\s*(\d+)\s*度\s*(\S+?)[，,]', desc)
+        if cond_match:
+            result["current_temp"] = int(cond_match.group(1))
+            result["weather_desc"] = cond_match.group(2)
+
+        # 湿度
+        hum_match = re.search(r'湿度[：:]\s*(\d+)%', desc)
+        if hum_match:
+            result["humidity"] = int(hum_match.group(1))
+
+        # 风向风力
+        wind_match = re.search(r'([东西南北]+风)[：:]\s*(\d+)\s*级', desc)
+        if wind_match:
+            result["wind_direction"] = wind_match.group(1)
+            result["wind_speed"] = wind_match.group(2) + "级"
+
+        # 白天最高温: "白天：28度,小雨"
+        day_match = re.search(r'白天[：:]\s*(\d+)\s*度[，,]\s*(\S+)', desc)
+        if day_match:
+            result["max_temp"] = int(day_match.group(1))
+
+        # 夜间最低温: "夜间：小雨，21度"
+        night_match = re.search(r'夜间[：:]\s*\S+[，,]\s*(\d+)\s*度', desc)
+        if night_match:
+            result["min_temp"] = int(night_match.group(1))
+
+        if result["current_temp"] is None:
+            log_warning("墨迹天气: 解析失败，未提取到有效数据")
+            return None
+
+        log_step("墨迹天气获取成功", True)
+        return result
+
+    except Exception as e:
+        log_warning(f"墨迹天气失败: {e}")
+        return None
+
+
 def fetch_qweather():
     if not QWEATHER_API_KEY:
         return None
@@ -166,7 +242,7 @@ def get_weather():
     log_info("=" * 40)
     log_info("开始获取天气数据...")
     results = []
-    for name, f in [("Open-Meteo", fetch_openmeteo), ("wttr.in", fetch_wttr), ("和风天气", fetch_qweather)]:
+    for name, f in [("Open-Meteo", fetch_openmeteo), ("wttr.in", fetch_wttr), ("墨迹天气", fetch_moji), ("和风天气", fetch_qweather)]:
         try:
             r = f()
             if r:
@@ -182,7 +258,7 @@ def get_weather():
         log_step(f"天气获取完成 (数据源: {w['source']})", True)
         w["all_failed"] = False
 
-    all_s = {"Open-Meteo", "wttr.in", "和风天气"}
+    all_s = {"Open-Meteo", "wttr.in", "墨迹天气", "和风天气"}
     w["sources_failed"] = list(all_s - set(w["sources_available"]))
     log_info("=" * 40)
     return w
