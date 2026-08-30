@@ -39,7 +39,10 @@ def get_date_info(test_date: str = None) -> dict:
 
 
 def get_school_week(term_start_date_str: str = None, ref_date: datetime = None) -> int:
-    """计算当前是第几教学周"""
+    """
+    计算当前是第几教学周。
+    返回 0 表示尚未开学（早于开学日期）。
+    """
     if not term_start_date_str:
         term_start_date_str = os.getenv("TERM_START_DATE", "2026-08-31").strip()
     try:
@@ -47,7 +50,7 @@ def get_school_week(term_start_date_str: str = None, ref_date: datetime = None) 
         now = ref_date or get_beijing_now()
         delta = now - start
         if delta.days < 0:
-            return 1
+            return 0
         return delta.days // 7 + 1
     except Exception:
         return 1

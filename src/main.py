@@ -97,8 +97,11 @@ def main():
     test_date_str = test_dt.strftime("%Y-%m-%d") if test_dt else None
     date_info = get_date_info(test_date_str)
     week_num = get_school_week(ref_date=test_dt)
-    date_info["week_number"] = week_num
-    log_info(f"今天: {date_info['date']} {date_info['weekday']} 第{week_num}周")
+    date_info["week_number"] = week_num if week_num > 0 else 1
+    if week_num <= 0:
+        log_info(f"今天: {date_info['date']} {date_info['weekday']}（尚未开学）")
+    else:
+        log_info(f"今天: {date_info['date']} {date_info['weekday']} 第{week_num}周")
 
     errors = {}
 

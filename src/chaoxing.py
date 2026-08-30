@@ -151,16 +151,21 @@ def get_schedule(session=None, ref_date=None) -> list:
     """
     获取当日课程安排。
     从超星课程表 API 获取数据，解析小节编号→大节编号。
+    未开学（week<=0）时直接返回空，不登录也不请求。
     """
     now = ref_date if ref_date is not None else get_beijing_now()
     today_weekday = now.weekday()  # 0=周一
+
+    # 未开学则直接返回空，避免无谓登录与请求
+    week_num = get_school_week(ref_date=now)
+    if week_num <= 0:
+        log_info("尚未开学，无课程安排")
+        return []
 
     try:
         sess = session or login()
         sess.get("https://kb.chaoxing.com/", timeout=REQUEST_TIMEOUT)
 
-        # 计算当前教学周，作为 week 参数传入 API
-        week_num = get_school_week(ref_date=now)
         log_info(f"当前第 {week_num} 教学周，请求 API 时携带 week={week_num}")
         lesson_list = _fetch_schedule_api(sess, week=week_num)
 
