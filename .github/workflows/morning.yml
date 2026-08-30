@@ -2,7 +2,7 @@ name: 早安推送
 
 on:
   schedule:
-    - cron: '0 22 * * *'  # UTC 22:00 = 北京时间次日 6:00
+    - cron: '7 22 * * *'  # UTC 22:07 = 北京时间次日 6:07（错开整点高峰，降低延迟）
   workflow_dispatch:
     inputs:
       TEST_DATE:
