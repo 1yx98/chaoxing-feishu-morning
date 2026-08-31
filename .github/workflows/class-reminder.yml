@@ -2,11 +2,12 @@ name: 课前提醒
 
 on:
   schedule:
-    # 每5分钟检查一次，周一至周五上课时段
-    # 北京时间 08:00-19:55 = UTC 00:00-11:55（周一至周五）
-    - cron: '*/5 0-11 * * 1-5'
-    # 北京时间 07:00-07:55 = UTC 23:00-23:55（周日至周四）
-    - cron: '*/5 23 * * 0-4'
+    # 早间段：北京时间 06:30 启动，覆盖第1-2节（08:20, 10:20）
+    - cron: '30 22 * * 0-4'
+    # 午间段：北京时间 12:30 启动，覆盖第3-4节（14:00, 16:00）
+    - cron: '30 4 * * 1-5'
+    # 晚间段：北京时间 18:00 启动，覆盖第5节（19:00）
+    - cron: '0 10 * * 1-5'
   workflow_dispatch:
     inputs:
       test_date:
@@ -14,9 +15,15 @@ on:
         required: false
         default: ''
 
+# 防止同一时段多个实例并发
+concurrency:
+  group: class-reminder
+  cancel-in-progress: false
+
 jobs:
   reminder:
     runs-on: ubuntu-latest
+    timeout-minutes: 360  # 最长 6 小时
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -25,7 +32,7 @@ jobs:
           cache: 'pip'
       - name: 安装依赖
         run: pip install -r requirements.txt
-      - name: 检查课前提醒
+      - name: 课前提醒长驻进程
         env:
           FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
           FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
@@ -34,4 +41,4 @@ jobs:
           CHAOXING_PASSWORD: ${{ secrets.CHAOXING_PASSWORD }}
           TERM_START_DATE: ${{ secrets.TERM_START_DATE }}
           TEST_DATE: ${{ github.event.inputs.test_date }}
-        run: python src/class_reminder.py
+        run: python src/class_reminder_loop.py
