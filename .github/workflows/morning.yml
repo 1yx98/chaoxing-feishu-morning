@@ -35,3 +35,27 @@ jobs:
           QWEATHER_API_KEY: ${{ secrets.QWEATHER_API_KEY }}
           TEST_DATE: ${{ github.event.inputs.TEST_DATE }}
         run: python src/main.py
+
+  # 早间课前提醒：利用早安推送已证明可靠的 cron，顺带启动课前提醒长驻进程
+  morning-reminder:
+    needs: morning
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+      - name: 安装依赖
+        run: pip install -r requirements.txt
+      - name: 课前提醒长驻进程
+        env:
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+          FEISHU_RECEIVE_ID: ${{ secrets.FEISHU_RECEIVE_ID }}
+          CHAOXING_USERNAME: ${{ secrets.CHAOXING_USERNAME }}
+          CHAOXING_PASSWORD: ${{ secrets.CHAOXING_PASSWORD }}
+          TERM_START_DATE: ${{ secrets.TERM_START_DATE }}
+        run: python src/class_reminder_loop.py
