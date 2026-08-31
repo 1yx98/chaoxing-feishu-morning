@@ -36,8 +36,26 @@ def get_upcoming_period(now: datetime) -> tuple:
     return (0, "", "")
 
 
+def _get_test_date():
+    """获取测试日期（与 main.py 一致）"""
+    test_date = os.getenv("TEST_DATE", "").strip()
+    if test_date:
+        try:
+            if " " in test_date:
+                return datetime.strptime(test_date, "%Y-%m-%d %H:%M").replace(tzinfo=TZ_BEIJING)
+            else:
+                return datetime.strptime(test_date, "%Y-%m-%d").replace(tzinfo=TZ_BEIJING)
+        except Exception:
+            pass
+    return None
+
+
 def main():
-    now = get_beijing_now()
+    test_dt = _get_test_date()
+    if test_dt:
+        log_info(f"⚠ 测试模式：模拟日期 {test_dt.strftime('%Y-%m-%d %H:%M')}")
+
+    now = test_dt if test_dt else get_beijing_now()
 
     # 周末不运行
     if now.weekday() >= 5:
@@ -77,6 +95,20 @@ def main():
     max_end = now + timedelta(hours=5, minutes=55)
     if end_time > max_end:
         end_time = max_end
+
+    # 测试模式：只做一次检查并退出
+    if test_dt:
+        log_info(f"测试模式：模拟时间 {test_dt.strftime('%H:%M')}，仅检查一次")
+        period, start_time, end_time_str = get_upcoming_period(now)
+        if period > 0:
+            matched = next((c for c in courses if c.get("start_section") == period), None)
+            if matched:
+                log_info(f"  → 会触发提醒: {matched.get('name')} | 第{period}节 | {start_time}-{end_time_str}")
+            else:
+                log_info(f"  → 第{period}节无课程安排")
+        else:
+            log_info(f"  → 当前不在任何提醒窗口内")
+        return
 
     log_info(f"计划运行至 {end_time.strftime('%H:%M')}，每 60 秒轮询一次")
 

@@ -209,7 +209,8 @@ def get_schedule(session=None, ref_date=None) -> list:
                 lesson.get("beginSection") or
                 0
             )
-            # endNumber 优先，其次 endSection/sectionEnd，最后尝试 length 推算
+            # endNumber 优先，其次 endSection/sectionEnd。注意：超星 API 通常没有 endNumber，
+            # 而是用 length 字段表示连续小节数，需要通过 beginNumber + length - 1 推算 endNumber。
             sub_end_raw = (
                 lesson.get("endNumber") or
                 lesson.get("endSection") or
@@ -217,14 +218,15 @@ def get_schedule(session=None, ref_date=None) -> list:
                 lesson.get("endSectionNum") or
                 None
             )
-            if sub_end_raw is not None:
+            if sub_end_raw is not None and int(sub_end_raw) > sub_start:
                 sub_end = int(sub_end_raw)
             else:
-                # 如果 API 没有 endNumber，尝试用 length（课时长度）推算
+                # API 没有 endNumber，用 length 推算
                 sub_len = lesson.get("length")
                 if sub_len is not None:
                     try:
                         sub_end = sub_start + int(sub_len) - 1
+                        log_info(f"  [小节推算] beginNumber={sub_start}, length={sub_len} → sub_end={sub_end}")
                     except (ValueError, TypeError):
                         sub_end = sub_start
                 else:
