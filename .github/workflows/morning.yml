@@ -2,7 +2,8 @@ name: 早安推送
 
 on:
   schedule:
-    - cron: '7 22 * * *'  # UTC 22:07 = 北京时间次日 6:07（错开整点高峰，降低延迟）
+    - cron: '7 22 * * *'   # 主触发：UTC 22:07 = 北京时间 6:07
+    - cron: '30 22 * * *'  # 备用触发：UTC 22:30 = 北京时间 6:30（防止 GitHub 跳过主 cron）
   workflow_dispatch:
     inputs:
       TEST_DATE:
