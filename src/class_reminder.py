@@ -43,9 +43,9 @@ def get_upcoming_period(now: datetime) -> tuple:
         start_h, start_m = map(int, start_time.split(":"))
         start_dt = now.replace(hour=start_h, minute=start_m, second=0, microsecond=0)
 
-        # 窗口：课前15分钟 到 课前10分钟（5分钟宽，防止重复）
+        # 窗口：课前15分钟 到 课前5分钟（10分钟宽，GitHub延迟时也能兜住）
         window_start = start_dt - timedelta(minutes=15)
-        window_end = start_dt - timedelta(minutes=10)
+        window_end = start_dt - timedelta(minutes=5)
 
         if window_start <= now < window_end:
             return (section_num, start_time, info["end"])
