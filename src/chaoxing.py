@@ -190,6 +190,17 @@ def get_schedule(session=None, ref_date=None) -> list:
 
         result = []
         for lesson in today:
+            # ---- 调试：打印原始节次相关字段 ----
+            bgn = lesson.get("beginNumber", "N/A")
+            end = lesson.get("endNumber", "N/A")
+            log_info(f"  [DEBUG] beginNumber={bgn}, endNumber={end}, "
+                     f"startSection={lesson.get('startSection','N/A')}, "
+                     f"endSection={lesson.get('endSection','N/A')}, "
+                     f"sectionStart={lesson.get('sectionStart','N/A')}, "
+                     f"sectionEnd={lesson.get('sectionEnd','N/A')}, "
+                     f"length={lesson.get('length','N/A')}, "
+                     f"courseName={lesson.get('courseName','N/A')}")
+
             # 小节编号 → 大节编号（兼容多种字段名）
             sub_start = int(
                 lesson.get("startSection") or
@@ -198,13 +209,26 @@ def get_schedule(session=None, ref_date=None) -> list:
                 lesson.get("beginSection") or
                 0
             )
-            sub_end = int(
+            # endNumber 优先，其次 endSection/sectionEnd，最后尝试 length 推算
+            sub_end_raw = (
+                lesson.get("endNumber") or
                 lesson.get("endSection") or
                 lesson.get("sectionEnd") or
-                lesson.get("endNumber") or
                 lesson.get("endSectionNum") or
-                sub_start
+                None
             )
+            if sub_end_raw is not None:
+                sub_end = int(sub_end_raw)
+            else:
+                # 如果 API 没有 endNumber，尝试用 length（课时长度）推算
+                sub_len = lesson.get("length")
+                if sub_len is not None:
+                    try:
+                        sub_end = sub_start + int(sub_len) - 1
+                    except (ValueError, TypeError):
+                        sub_end = sub_start
+                else:
+                    sub_end = sub_start
             period_start = SECTION_TO_PERIOD.get(sub_start, 0)
             period_end = SECTION_TO_PERIOD.get(sub_end, period_start)
 
