@@ -5,7 +5,7 @@ API 返回小节编号(1-10)，解析时自动转为大节(1-5)。
 """
 
 import base64
-import json
+import time
 import requests
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad
@@ -19,6 +19,24 @@ from config import (
     SUB_SECTION_TIME, SECTION_TO_PERIOD,
 )
 
+# 重试配置
+MAX_RETRIES = 3
+RETRY_DELAY = 5  # 秒
+
+
+def _retry(func, *args, retries=MAX_RETRIES, delay=RETRY_DELAY, **kwargs):
+    """通用重试包装器"""
+    last_error = None
+    for attempt in range(1, retries + 1):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            last_error = e
+            if attempt < retries:
+                log_warning(f"第{attempt}/{retries}次失败，{delay}秒后重试: {e}")
+                time.sleep(delay)
+    raise last_error
+
 
 def _encrypt_aes(message: str, key: str) -> str:
     key_bytes = key.encode("utf-8")
@@ -27,24 +45,16 @@ def _encrypt_aes(message: str, key: str) -> str:
     return base64.b64encode(cipher.encrypt(padded)).decode("utf-8")
 
 
-def login(username: str = None, password: str = None) -> requests.Session:
-    """登录超星学习通"""
-    username = username or CHAOXING_USERNAME
-    password = password or CHAOXING_PASSWORD
-    if not username or not password:
-        raise RuntimeError("超星账号或密码未配置")
-
+def _do_login(username: str, password: str) -> requests.Session:
+    """实际登录逻辑（不含重试）"""
     session = requests.Session()
     session.headers.update({
         "User-Agent": USER_AGENT,
         "Accept-Language": "zh-CN,zh;q=0.9",
     })
 
-    log_info("正在预热超星登录页面...")
     session.get(CHAOXING_PRELOGIN_URL, timeout=REQUEST_TIMEOUT, allow_redirects=True)
-    log_step("预热登录页面", True)
 
-    log_info("正在加密登录凭证...")
     login_data = {
         "fid": "-1",
         "uname": _encrypt_aes(username, CHAOXING_AES_KEY),
@@ -56,9 +66,7 @@ def login(username: str = None, password: str = None) -> requests.Session:
         "doubleFactorLogin": "0",
         "independentId": "0",
     }
-    log_step("加密完成", True)
 
-    log_info("正在提交登录请求...")
     resp = session.post(
         CHAOXING_LOGIN_URL, data=login_data,
         headers={
@@ -74,21 +82,35 @@ def login(username: str = None, password: str = None) -> requests.Session:
         result = {}
     if result.get("status") is False:
         raise RuntimeError(f"超星登录失败: {result.get('msg2', '')}")
-    log_step("超星登录成功", True)
     return session
+
+
+def login(username: str = None, password: str = None) -> requests.Session:
+    """登录超星学习通（自动重试3次）"""
+    username = username or CHAOXING_USERNAME
+    password = password or CHAOXING_PASSWORD
+    if not username or not password:
+        raise RuntimeError("超星账号或密码未配置")
+
+    log_info("正在登录超星学习通...")
+    try:
+        session = _retry(_do_login, username, password)
+        log_step("超星登录成功", True)
+        return session
+    except Exception as e:
+        log_step(f"超星登录失败（已重试{MAX_RETRIES}次）: {e}", False)
+        raise
 
 
 def _extract_lesson_list(data) -> list:
     """从 API 响应中提取 lessonArray（兼容多种返回结构）"""
     if not isinstance(data, dict):
         return []
-    # 结构1: data.lessonArray
     inner = data.get("data", {})
     if isinstance(inner, dict):
         ll = inner.get("lessonArray", [])
         if isinstance(ll, list) and len(ll) > 0:
             return ll
-    # 结构2: 顶层 lessonArray
     ll = data.get("lessonArray", [])
     if isinstance(ll, list) and len(ll) > 0:
         return ll
@@ -119,7 +141,6 @@ def _fetch_schedule_api(session: requests.Session, week: int = None) -> list:
         lesson_list = _extract_lesson_list(data)
         if lesson_list:
             log_info(f"API 返回 {len(lesson_list)} 条课程记录（第{week}周）")
-            log_info(f"第一条记录字段: {list(lesson_list[0].keys())}")
             return lesson_list
 
         # 策略2: 带 curriculumId
@@ -139,10 +160,9 @@ def _fetch_schedule_api(session: requests.Session, week: int = None) -> list:
             ll = _extract_lesson_list(d2)
             if ll:
                 log_info(f"API(带curriculumId) 返回 {len(ll)} 条记录（第{week}周）")
-                log_info(f"第一条记录字段: {list(ll[0].keys())}")
                 return ll
-    except Exception:
-        pass
+    except Exception as e:
+        log_warning(f"课程表API请求异常: {e}")
 
     return []
 
@@ -167,13 +187,13 @@ def get_schedule(session=None, ref_date=None) -> list:
         sess.get("https://kb.chaoxing.com/", timeout=REQUEST_TIMEOUT)
 
         log_info(f"当前第 {week_num} 教学周，请求 API 时携带 week={week_num}")
-        lesson_list = _fetch_schedule_api(sess, week=week_num)
+        lesson_list = _retry(_fetch_schedule_api, sess, week=week_num)
 
         if not lesson_list:
-            log_warning("课程表 API 未返回数据（开学后会自动获取）")
+            log_warning("课程表 API 未返回数据")
             return []
 
-        # 筛选今日 + 解析
+        # 筛选今日
         today = []
         for lesson in lesson_list:
             day = lesson.get("dayOfWeek") or lesson.get("weekDay") or lesson.get("day", 0)
@@ -190,17 +210,6 @@ def get_schedule(session=None, ref_date=None) -> list:
 
         result = []
         for lesson in today:
-            # ---- 调试：打印原始节次相关字段 ----
-            bgn = lesson.get("beginNumber", "N/A")
-            end = lesson.get("endNumber", "N/A")
-            log_info(f"  [DEBUG] beginNumber={bgn}, endNumber={end}, "
-                     f"startSection={lesson.get('startSection','N/A')}, "
-                     f"endSection={lesson.get('endSection','N/A')}, "
-                     f"sectionStart={lesson.get('sectionStart','N/A')}, "
-                     f"sectionEnd={lesson.get('sectionEnd','N/A')}, "
-                     f"length={lesson.get('length','N/A')}, "
-                     f"courseName={lesson.get('courseName','N/A')}")
-
             # 小节编号 → 大节编号（兼容多种字段名）
             sub_start = int(
                 lesson.get("startSection") or
@@ -209,8 +218,6 @@ def get_schedule(session=None, ref_date=None) -> list:
                 lesson.get("beginSection") or
                 0
             )
-            # endNumber 优先，其次 endSection/sectionEnd。注意：超星 API 通常没有 endNumber，
-            # 而是用 length 字段表示连续小节数，需要通过 beginNumber + length - 1 推算 endNumber。
             sub_end_raw = (
                 lesson.get("endNumber") or
                 lesson.get("endSection") or
@@ -221,12 +228,10 @@ def get_schedule(session=None, ref_date=None) -> list:
             if sub_end_raw is not None and int(sub_end_raw) > sub_start:
                 sub_end = int(sub_end_raw)
             else:
-                # API 没有 endNumber，用 length 推算
                 sub_len = lesson.get("length")
                 if sub_len is not None:
                     try:
                         sub_end = sub_start + int(sub_len) - 1
-                        log_info(f"  [小节推算] beginNumber={sub_start}, length={sub_len} → sub_end={sub_end}")
                     except (ValueError, TypeError):
                         sub_end = sub_start
                 else:
@@ -234,31 +239,24 @@ def get_schedule(session=None, ref_date=None) -> list:
             period_start = SECTION_TO_PERIOD.get(sub_start, 0)
             period_end = SECTION_TO_PERIOD.get(sub_end, period_start)
 
-            # 节次解析失败时跳过该课程
             if period_start == 0:
-                log_warning(f"课程节次解析失败: sub_start={sub_start}, sub_end={sub_end}, 跳过 {lesson.get('name', lesson.get('courseName', ''))}")
+                log_warning(f"课程节次解析失败: sub_start={sub_start}, 跳过 {lesson.get('name', lesson.get('courseName', ''))}")
                 continue
 
-            # 时间
             start_time = SUB_SECTION_TIME.get(sub_start, {}).get("start", "")
             end_time = SUB_SECTION_TIME.get(sub_end, {}).get("end", "")
 
-            # 课程名（尝试多种字段名）
             name = (
                 lesson.get("courseName") or
                 lesson.get("name") or
                 "未知课程"
             )
-
-            # 教师（尝试多种字段名）
             teacher = (
                 lesson.get("teacherName") or
                 lesson.get("teacher") or
                 lesson.get("teacherInfo") or
                 ""
             )
-
-            # 地点（尝试多种字段名）
             location = (
                 lesson.get("location") or
                 lesson.get("classroom") or
@@ -297,4 +295,5 @@ def get_schedule(session=None, ref_date=None) -> list:
 
 
 def get_day_courses(session=None, ref_date=None) -> list:
+    """兼容别名：获取当日课程"""
     return get_schedule(session, ref_date=ref_date)
