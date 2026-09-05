@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 from utils import log_step, log_info, log_warning, get_beijing_now, TZ_BEIJING
 from config import COURSE_TIME_TABLE
 from chaoxing import get_schedule
-from feishu import send_class_notification
+from feishu import send_class_notification, FeishuSender
 
 
 def get_test_date():
@@ -57,6 +57,25 @@ def find_upcoming_courses(now, courses, window_minutes=30):
     return upcoming
 
 
+def send_failure_notification(reason: str, now: datetime):
+    """发送失败通知到飞书，让用户知道为什么没收到提醒"""
+    try:
+        sender = FeishuSender()
+        date_str = now.strftime("%Y年%m月%d日")
+        weekday_str = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"][now.weekday()]
+        text = (
+            "⚠️ 课前提醒运行异常\n\n"
+            f"日期：{date_str} {weekday_str}\n"
+            f"时间：{now.strftime('%H:%M')}\n"
+            f"原因：{reason}\n\n"
+            "请前往 GitHub Actions 查看详细日志。"
+        )
+        sender.send_message("text", text)
+        log_step("失败通知已发送到飞书", True)
+    except Exception as e:
+        log_warning(f"发送失败通知也失败了: {e}")
+
+
 def main():
     test_dt = get_test_date()
     now = test_dt if test_dt else get_beijing_now()
@@ -72,7 +91,9 @@ def main():
     # 获取课程表（重试3次）
     courses = fetch_schedule_with_retry(now)
     if courses is None:
-        log_step("获取课程表多次失败，退出", False)
+        reason = "超星课程表获取失败（已重试3次），可能是账号问题或网络波动"
+        log_step(reason, False)
+        send_failure_notification(reason, now)
         sys.exit(1)
 
     if not courses:
@@ -86,6 +107,7 @@ def main():
         log_info("未来30分钟内无课程，退出")
         return
 
+    has_failure = False
     for period, class_start, matched in upcoming:
         remind_time = class_start - timedelta(minutes=15)
         start_time_str = class_start.strftime("%H:%M")
@@ -121,20 +143,34 @@ def main():
             time_desc = f"{start_time_str} - {COURSE_TIME_TABLE[period]['end']}"
             section_desc = f"第{period}节"
 
-        # 发送提醒
-        try:
-            send_class_notification(
-                course_name=course_name,
-                time_desc=time_desc,
-                section_desc=section_desc,
-                teacher=teacher,
-                location=location,
-                date_str=now.strftime("%Y年%m月%d日"),
-                weekday_str=["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"][now.weekday()],
-            )
-            log_step(f"✓ 已发送: {course_name} | {time_desc} | {location}", True)
-        except Exception as e:
-            log_step(f"发送失败: {course_name} | {e}", False)
+        # 发送提醒（失败重试1次）
+        sent = False
+        for attempt in range(2):
+            try:
+                send_class_notification(
+                    course_name=course_name,
+                    time_desc=time_desc,
+                    section_desc=section_desc,
+                    teacher=teacher,
+                    location=location,
+                    date_str=now.strftime("%Y年%m月%d日"),
+                    weekday_str=["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"][now.weekday()],
+                )
+                log_step(f"✓ 已发送: {course_name} | {time_desc} | {location}", True)
+                sent = True
+                break
+            except Exception as e:
+                log_warning(f"发送失败（第{attempt+1}次）: {e}")
+                if attempt == 0:
+                    time.sleep(10)
+
+        if not sent:
+            has_failure = True
+            reason = f"飞书消息发送失败: {course_name}（{time_desc}）"
+            send_failure_notification(reason, now)
+
+    if has_failure:
+        sys.exit(1)
 
 
 if __name__ == "__main__":
@@ -143,4 +179,10 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"\n❌ 程序异常退出: {e}")
         traceback.print_exc()
+        # 异常时也通知用户
+        try:
+            now = get_beijing_now()
+            send_failure_notification(f"程序异常退出: {e}", now)
+        except Exception:
+            pass
         sys.exit(1)
