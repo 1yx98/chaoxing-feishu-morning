@@ -50,4 +50,15 @@ jobs:
           CHAOXING_PASSWORD: ${{ secrets.CHAOXING_PASSWORD }}
           TERM_START_DATE: ${{ secrets.TERM_START_DATE }}
           TEST_DATE: ${{ github.event.inputs.test_date }}
-        run: python src/class_reminder_single.py
+        run: |
+          LOG_FILE="class-reminder-$(date +%Y-%m-%d-%H%M).log"
+          echo "日志文件: $LOG_FILE"
+          python src/class_reminder_single.py 2>&1 | tee "$LOG_FILE"
+          echo "LOG_FILE=$LOG_FILE" >> $GITHUB_ENV
+      - name: 上传运行日志
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: class-reminder-log-${{ github.run_id }}
+          path: ${{ env.LOG_FILE }}
+          retention-days: 30
