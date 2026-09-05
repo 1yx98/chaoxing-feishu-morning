@@ -2,20 +2,29 @@ name: 课前提醒
 
 on:
   schedule:
-    # 早间段：北京时间 06:30 启动，覆盖第1-2节（08:20, 10:20）
-    - cron: '30 22 * * 0-4'
-    # 午间段：北京时间 12:30 启动，覆盖第3-4节（14:00, 16:00）
-    - cron: '30 4 * * 1-5'
-    # 晚间段：北京时间 18:00 启动，覆盖第5节（19:00）
-    - cron: '0 10 * * 1-5'
+    # 第1节 08:20上课 → 北京时间 07:50 主触发 / 08:00 备用
+    - cron: '50 23 * * 0-4'   # UTC 23:50 = 北京时间 07:50（周日-周四触发，对应周一-周五）
+    - cron: '0 0 * * 1-5'     # UTC 00:00 = 北京时间 08:00
+    # 第2节 10:20上课 → 北京时间 09:50 主触发 / 10:00 备用
+    - cron: '50 1 * * 1-5'    # UTC 01:50 = 北京时间 09:50
+    - cron: '0 2 * * 1-5'     # UTC 02:00 = 北京时间 10:00
+    # 第3节 14:00上课 → 北京时间 13:30 主触发 / 13:40 备用
+    - cron: '30 5 * * 1-5'    # UTC 05:30 = 北京时间 13:30
+    - cron: '40 5 * * 1-5'    # UTC 05:40 = 北京时间 13:40
+    # 第4节 16:00上课 → 北京时间 15:30 主触发 / 15:40 备用
+    - cron: '30 7 * * 1-5'    # UTC 07:30 = 北京时间 15:30
+    - cron: '40 7 * * 1-5'    # UTC 07:40 = 北京时间 15:40
+    # 第5节 19:00上课 → 北京时间 18:30 主触发 / 18:40 备用
+    - cron: '30 10 * * 1-5'   # UTC 10:30 = 北京时间 18:30
+    - cron: '40 10 * * 1-5'   # UTC 10:40 = 北京时间 18:40
   workflow_dispatch:
     inputs:
       test_date:
-        description: '测试日期（格式：YYYY-MM-DD HH:MM，如 2026-05-15 08:05）'
+        description: '测试日期时间（格式：YYYY-MM-DD HH:MM，留空=真实时间）'
         required: false
         default: ''
 
-# 防止同一时段多个实例并发
+# 同一时间只允许一个实例运行，防止主备触发重复发送
 concurrency:
   group: class-reminder
   cancel-in-progress: true
@@ -23,7 +32,7 @@ concurrency:
 jobs:
   reminder:
     runs-on: ubuntu-latest
-    timeout-minutes: 360  # 最长 6 小时
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -32,7 +41,7 @@ jobs:
           cache: 'pip'
       - name: 安装依赖
         run: pip install -r requirements.txt
-      - name: 课前提醒长驻进程
+      - name: 发送课前提醒
         env:
           FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
           FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
@@ -41,4 +50,4 @@ jobs:
           CHAOXING_PASSWORD: ${{ secrets.CHAOXING_PASSWORD }}
           TERM_START_DATE: ${{ secrets.TERM_START_DATE }}
           TEST_DATE: ${{ github.event.inputs.test_date }}
-        run: python src/class_reminder_loop.py
+        run: python src/class_reminder_single.py
