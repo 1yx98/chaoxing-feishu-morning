@@ -40,4 +40,15 @@ jobs:
           WEATHER_CITY_ID: ${{ secrets.WEATHER_CITY_ID || '101110106' }}
           QWEATHER_API_KEY: ${{ secrets.QWEATHER_API_KEY }}
           TEST_DATE: ${{ github.event.inputs.TEST_DATE }}
-        run: python src/main.py
+        run: |
+          LOG_FILE="morning-$(date +%Y-%m-%d).log"
+          echo "日志文件: $LOG_FILE"
+          python src/main.py 2>&1 | tee "$LOG_FILE"
+          echo "LOG_FILE=$LOG_FILE" >> $GITHUB_ENV
+      - name: 上传运行日志
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: morning-log-${{ github.run_id }}
+          path: ${{ env.LOG_FILE }}
+          retention-days: 30
