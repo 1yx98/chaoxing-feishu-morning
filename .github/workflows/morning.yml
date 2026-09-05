@@ -2,14 +2,19 @@ name: 早安推送
 
 on:
   schedule:
-    - cron: '7 22 * * *'   # 主触发：UTC 22:07 = 北京时间 6:07
-    - cron: '30 22 * * *'  # 备用触发：UTC 22:30 = 北京时间 6:30（防止 GitHub 跳过主 cron）
+    - cron: '30 21 * * *'   # 主触发：UTC 21:30 = 北京时间 5:30（提前触发，应对GitHub调度延迟）
+    - cron: '0 22 * * *'    # 备用触发：UTC 22:00 = 北京时间 6:00
   workflow_dispatch:
     inputs:
       TEST_DATE:
         description: '测试日期（留空=真实时间，格式: 2026-05-15）'
         required: false
         default: ''
+
+# 防止主备触发同时运行导致重复推送
+concurrency:
+  group: morning-push
+  cancel-in-progress: true
 
 jobs:
   morning:
