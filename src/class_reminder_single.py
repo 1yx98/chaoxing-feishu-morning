@@ -1,7 +1,6 @@
 """
 单次课前提醒脚本
-由 GitHub Actions 在每节课前 30 分钟触发，脚本自动识别接下来要上的课，
-等待到课前 15 分钟准时发送提醒。
+由 cron-job.org 在每节课前 15 分钟精确触发，脚本启动后直接发送提醒。
 每个提醒独立运行，比长驻进程更可靠。
 """
 
@@ -18,6 +17,8 @@ from feishu import send_class_notification, FeishuSender
 
 # 兜底：如果启动时已经上课，但不超过这个分钟数，仍然补发提醒
 LATE_GRACE_MINUTES = 30
+# 触发窗口：查找未来多少分钟内的课程（cron-job.org 在课前15分钟触发，留5分钟容错）
+UPCOMING_WINDOW_MINUTES = 20
 
 
 def get_test_date():
@@ -46,7 +47,7 @@ def fetch_schedule_with_retry(ref_date, max_retries=3, delay=20):
     return None
 
 
-def find_upcoming_courses(now, courses, window_minutes=30):
+def find_upcoming_courses(now, courses, window_minutes=UPCOMING_WINDOW_MINUTES):
     """找到未来 window_minutes 分钟内要上的课（含已上课但在宽限期内的）"""
     upcoming = []
     for period in sorted(COURSE_TIME_TABLE.keys()):
@@ -54,7 +55,7 @@ def find_upcoming_courses(now, courses, window_minutes=30):
         start_h, start_m = map(int, info["start"].split(":"))
         class_start = now.replace(hour=start_h, minute=start_m, second=0, microsecond=0)
         grace_end = class_start + timedelta(minutes=LATE_GRACE_MINUTES)
-        # 包含：还没上课的（未来30分钟内）+ 已上课但在30分钟宽限期内的
+        # 包含：还没上课的（未来窗口内）+ 已上课但在30分钟宽限期内的
         if now < class_start + timedelta(minutes=window_minutes) and now < grace_end:
             matched = next((c for c in courses if c.get("start_section") == period), None)
             if matched:
@@ -105,16 +106,15 @@ def main():
         log_info("今日无课程安排，退出")
         return
 
-    # 找到未来30分钟内要上的课（含已上课30分钟内的兜底）
-    upcoming = find_upcoming_courses(now, courses, window_minutes=30)
+    # 找到未来窗口内要上的课（含已上课30分钟内的兜底）
+    upcoming = find_upcoming_courses(now, courses)
 
     if not upcoming:
-        log_info("未来30分钟内无课程，退出")
+        log_info(f"未来{UPCOMING_WINDOW_MINUTES}分钟内无课程，退出")
         return
 
     has_failure = False
     for period, class_start, matched in upcoming:
-        remind_time = class_start - timedelta(minutes=15)
         start_time_str = class_start.strftime("%H:%M")
 
         # 已经上课了，检查是否在宽限期内
@@ -125,19 +125,8 @@ def main():
             else:
                 log_info(f"第{period}节已上课{elapsed:.0f}分钟，超过宽限期，跳过")
                 continue
-        elif now < remind_time:
-            # 还没到提醒时间，等待
-            wait_seconds = int((remind_time - now).total_seconds())
-            log_info(f"第{period}节 {start_time_str} 上课，等待 {wait_seconds // 60} 分 {wait_seconds % 60} 秒到 {remind_time.strftime('%H:%M')} 发送")
-            time.sleep(wait_seconds)
-            now = get_beijing_now()
-            # 等待结束后再次检查是否超时
-            if now >= class_start:
-                elapsed = (now - class_start).total_seconds() / 60
-                if elapsed > LATE_GRACE_MINUTES:
-                    log_info(f"等待后第{period}节已上课{elapsed:.0f}分钟，超过宽限期，跳过")
-                    continue
-                log_info(f"等待后第{period}节已上课{elapsed:.0f}分钟，补发提醒")
+        else:
+            log_info(f"第{period}节 {start_time_str} 上课，立即发送提醒")
 
         # 组装课程信息
         course_name = matched.get("name", "未知课程")
