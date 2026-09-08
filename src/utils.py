@@ -13,7 +13,7 @@ TZ_BEIJING = timezone(timedelta(hours=8))
 
 def get_beijing_now() -> datetime:
     """获取当前北京时间（不依赖系统时区设置）"""
-    return datetime.now(timezone.utc) + timedelta(hours=8)
+    return datetime.now(TZ_BEIJING)
 
 
 def get_date_info(test_date: str = None) -> dict:
