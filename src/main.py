@@ -171,7 +171,10 @@ def main():
 if __name__ == "__main__":
     try:
         errors = main()
-        sys.exit(1 if errors else 0)
+        # 只有飞书发送失败才返回非0退出码（关键功能失败）
+        # 天气/课程获取失败属于部分功能异常，不影响整体 workflow 状态
+        critical_failed = errors.get("feishu_failed", False)
+        sys.exit(1 if critical_failed else 0)
     except Exception as e:
         print(f"\n❌ 程序异常退出: {e}")
         traceback.print_exc()
