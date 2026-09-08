@@ -121,8 +121,10 @@ def _fetch_schedule_api(session: requests.Session, week: int = None) -> list:
     """
     调用课程表 API，返回 lessonArray 列表。
     getMyLessons 接口需要携带 week 参数（第几教学周），否则返回数据不准确。
+    策略1失败时自动尝试策略2（带 curriculumId）。
     """
     params = {"week": week} if week else {}
+    data = None
 
     # 策略1: 带 week 参数请求
     try:
@@ -142,10 +144,19 @@ def _fetch_schedule_api(session: requests.Session, week: int = None) -> list:
         if lesson_list:
             log_info(f"API 返回 {len(lesson_list)} 条课程记录（第{week}周）")
             return lesson_list
+    except Exception as e:
+        log_warning(f"课程表API策略1请求异常: {e}")
 
-        # 策略2: 带 curriculumId
-        inner = data.get("data", {}) if isinstance(data, dict) else {}
-        cid = (inner.get("curriculum") or {}).get("id") if isinstance(inner.get("curriculum"), dict) else None
+    # 策略2: 带 curriculumId（策略1失败或返回空时尝试）
+    try:
+        cid = None
+        if isinstance(data, dict):
+            inner = data.get("data", {})
+            if isinstance(inner, dict):
+                curriculum = inner.get("curriculum")
+                if isinstance(curriculum, dict):
+                    cid = curriculum.get("id")
+
         if cid:
             r2 = session.get(
                 CHAOXING_SCHEDULE_URL,
@@ -162,8 +173,9 @@ def _fetch_schedule_api(session: requests.Session, week: int = None) -> list:
                 log_info(f"API(带curriculumId) 返回 {len(ll)} 条记录（第{week}周）")
                 return ll
     except Exception as e:
-        log_warning(f"课程表API请求异常: {e}")
+        log_warning(f"课程表API策略2请求异常: {e}")
 
+    log_warning("课程表 API 两种策略均未返回数据")
     return []
 
 
