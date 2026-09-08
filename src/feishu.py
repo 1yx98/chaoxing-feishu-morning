@@ -26,6 +26,7 @@ class FeishuSender:
         self.app_id = app_id or FEISHU_APP_ID
         self.app_secret = app_secret or FEISHU_APP_SECRET
         self._token = None
+        self._token_retry = False
 
     def _get_token(self) -> str:
         """获取 tenant_access_token"""
@@ -145,6 +146,8 @@ class FeishuSender:
             else:
                 raise RuntimeError(f"飞书消息发送失败: {error_msg} (code={error_code})")
 
+        # 成功后重置重试标记，下次 token 过期仍可自动恢复
+        self._token_retry = False
         log_step("飞书消息发送成功", True)
         return data
 
