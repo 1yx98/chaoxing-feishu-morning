@@ -438,8 +438,8 @@ def send_class_notification(
     weekday_str: str = "",
 ) -> bool:
     """
-    发送课前提醒卡片。
-    布局：地点第一行（最醒目），课程名第二行，时间/节次/教师/日期在后。
+    发送课前提醒（纯文本消息）。
+    顺序：地点第一行，课程名第二行，时间/节次/教师/日期在后。
 
     :param course_name: 课程名称
     :param time_desc: 上课时间（如 "08:20 - 10:00"）
@@ -452,73 +452,31 @@ def send_class_notification(
     """
     sender = FeishuSender()
 
-    # 构建卡片：地点第一行、课程名第二行
-    body_lines = []
+    text_lines = ["📖 上课提醒", ""]
 
-    # 第一行：地点（最醒目，加粗加大）
-    if location:
-        body_lines.append(f"📍 **{location}**")
-    else:
-        body_lines.append("📍 **地点待查**")
+    # 第一行：地点
+    text_lines.append(f"📍 {location or '地点待查'}")
 
     # 第二行：课程名称
-    body_lines.append(f"📚 **{course_name}**")
+    text_lines.append(f"📚 {course_name}")
 
-    body_lines.append("")
+    text_lines.append("")
 
     # 时间与节次
-    time_line = f"🕐 {time_desc}"
-    if section_desc:
-        time_line += f"（{section_desc}）"
-    body_lines.append(time_line)
+    text_lines.append(f"🕐 {time_desc}（{section_desc}）")
 
     # 教师
     if teacher:
-        body_lines.append(f"👨‍🏫 {teacher}")
+        text_lines.append(f"👨‍🏫 {teacher}")
 
     # 日期
     if date_str:
         date_line = f"📅 {date_str}"
         if weekday_str:
-            date_line += f" · {weekday_str}"
-        body_lines.append(date_line)
+            date_line += f" {weekday_str}"
+        text_lines.append(date_line)
 
-    card = {
-        "schema": "2.0",
-        "config": {
-            "width_mode": "fill",
-            "enable_forward": True,
-        },
-        "header": {
-            "title": {"tag": "plain_text", "content": "📖 上课提醒"},
-            "template": "blue",
-        },
-        "body": {
-            "elements": [
-                {
-                    "tag": "markdown",
-                    "content": "\n".join(body_lines),
-                },
-            ],
-        },
-    }
-
-    # 先尝试卡片，失败降级为纯文本
-    try:
-        sender.send_message("interactive", card)
-        log_step(f"课前提醒卡片已发送: {course_name}", True)
-    except Exception as e:
-        log_warning(f"卡片发送失败，降级为文本: {e}")
-        text_lines = [
-            "📖 上课提醒",
-            f"📍 {location or '地点待查'}",
-            f"课程：{course_name}",
-            f"时间：{time_desc}（{section_desc}）",
-        ]
-        if teacher:
-            text_lines.append(f"教师：{teacher}")
-        if date_str:
-            text_lines.append(f"日期：{date_str} {weekday_str}")
-        sender.send_message("text", "\n".join(text_lines))
-
+    text_content = "\n".join(text_lines)
+    sender.send_message("text", text_content)
+    log_step(f"课前提醒已发送: {course_name}", True)
     return True
