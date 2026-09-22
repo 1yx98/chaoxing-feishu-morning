@@ -439,7 +439,7 @@ def send_class_notification(
 ) -> bool:
     """
     发送课前提醒（纯文本消息）。
-    顺序：地点第一行，课程名第二行，时间/节次/教师/日期在后。
+    顺序：地点第一行，课程第二行，时间第三行，教师第四行，日期最后。
 
     :param course_name: 课程名称
     :param time_desc: 上课时间（如 "08:20 - 10:00"）
@@ -452,26 +452,24 @@ def send_class_notification(
     """
     sender = FeishuSender()
 
-    text_lines = ["📖 上课提醒", ""]
+    text_lines = ["📖 上课提醒"]
 
     # 第一行：地点
-    text_lines.append(f"📍 {location or '地点待查'}")
+    text_lines.append(f"地点：{location or '待查'}")
 
     # 第二行：课程名称
-    text_lines.append(f"📚 {course_name}")
+    text_lines.append(f"课程：{course_name}")
 
-    text_lines.append("")
+    # 第三行：时间与节次
+    text_lines.append(f"时间：{time_desc}（{section_desc}）")
 
-    # 时间与节次
-    text_lines.append(f"🕐 {time_desc}（{section_desc}）")
-
-    # 教师
+    # 第四行：教师
     if teacher:
-        text_lines.append(f"👨‍🏫 {teacher}")
+        text_lines.append(f"教师：{teacher}")
 
-    # 日期
+    # 最后：日期
     if date_str:
-        date_line = f"📅 {date_str}"
+        date_line = f"日期：{date_str}"
         if weekday_str:
             date_line += f" {weekday_str}"
         text_lines.append(date_line)
